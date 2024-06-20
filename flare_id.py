@@ -761,16 +761,16 @@ class Flares:
             lc_median_n = fp + 'lc_median_section_'+"{:02d}".format(i)
             
             # Convert from LightCurve object to np.array() and write to npz:
-            LightCurvetoNPZ(self.lc_arr[i],lc_arr_n)
-            LightCurvetoNPZ(self.lc_flagged[i],lc_flag_n)
-            LightCurvetoNPZ(self.lc_norm[i],lc_norm_n)
+            LightCurvetoTab(self.lc_arr[i],lc_arr_n)
+            LightCurvetoTab(self.lc_flagged[i],lc_flag_n)
+            LightCurvetoTab(self.lc_norm[i],lc_norm_n)
             
             #lc_median is already a list of arrays instead of LightCurve objects:
             np.savez(lc_median_n, self.lc_median[i],overwrite = True)
         
         # Write out the full light curve to an npz file:    
         lc_n = fp + 'full_lc'
-        LightCurvetoNPZ(self.lc,lc_n)
+        LightCurvetoTab(self.lc,lc_n)
         
         # Write out the flare_table to an ascii file:
         flare_table_fn = fp + 'flare_table.tab'
@@ -779,7 +779,7 @@ class Flares:
         # Write out the data from the list of flares:
         for i in range(len(self.flares)):
             fn = fp + 'flare_'+"{:02d}".format(i)+''
-            LightCurvetoNPZ(self.flares[i],fn)
+            LightCurvetoTab(self.flares[i],fn)
         return
   
 
@@ -805,44 +805,34 @@ def PlanckFunction(lam, T):
     B = (B_num/B_den).to('W/(m**2*nm)')
     return B.value
 
-def NPZtoLightCurve(tab_n:str):
+def TabtoLightCurve(tab_n:str, meta_n=None):
     """
-    Converts an npz file to a LightCurve object
+    Converts an .tab file to a LightCurve object
     :param tab_n: file name of the npz data
     :type tab_n: str
     :return: LightCurve object of the npz data
     :rtype: lk.LightCurve
 
     """
+    
+    if meta_n is None:
+        meta_n = tab_n.replace('.tab', '_meta.json')
+    
     # loads in data:
-    arr = np.load(tab_n,allow_pickle = True)
-    data = arr['data']
+    tab = Table.read(tab_n, format = 'ascii')
     
-    # gets information on what values were masked:
-    mask = arr['mask']
-    col_names = arr['col_names']
-    
-    # assigns meta data to a dictionary:
-    meta_dat = dict(arr['meta_dat'])
+    f = open(meta_n)
+    meta_dat = json.load(f)
+    f.close()
     
     # makes LightCurve object from the data and meta data:
-    t = Table(data.transpose(),names=col_names)
-    lc = lk.LightCurve(t,meta=meta_dat)
-    
-    # masks data in all columns:
-    for c in col_names:
-        try:
-            mc = lc.MaskedColumn(lc[c], name = c,mask = mask)
-            lc[c] = mc
-        except:
-            warn(f"Couldn't mask {c} column")
-            pass
+    lc = lk.LightCurve(tab,meta=meta_dat)
 
     return lc
 
-def LightCurvetoNPZ(tab:lk.LightCurve,out_name:str, overwrite=True):
+def LightCurvetoTab(tab:lk.LightCurve,out_name:str, overwrite=True):
     """
-    Converts LightCurve object to npz file
+    Converts LightCurve object to an ascii .tab file
     :param tab: the light curve object
     :type tab: lk.LightCurve
     :param out_name: base file name to write the data out to
@@ -851,6 +841,10 @@ def LightCurvetoNPZ(tab:lk.LightCurve,out_name:str, overwrite=True):
     """
     # acceptable entry types for the meta dictionary to be written to JSON
     acceptable_types = [float, int, bool, str, np.ndarray]
+    
+    # write out table
+    table = tab.to_table()
+    table.write(out_name+".tab", format = 'ascii', overwrite=overwrite)
     
     # get the metadata of the lightkurve object
     meta_dict = tab.meta.copy()
@@ -872,15 +866,9 @@ def LightCurvetoNPZ(tab:lk.LightCurve,out_name:str, overwrite=True):
         arr = list(meta_dict[key].astype(list))
         meta_dict[key] = arr
     
-    # write out table
-    table = tab.to_table()
-    table.write(out_name+".tab", format = 'ascii', overwrite=overwrite)
-    
     meta_out_name = out_name+"_meta.json"
     f = open(meta_out_name, 'w')
     json.dump(meta_dict, f, indent=4)
-        
-    # write out data, mask information, column names, and meta data to file:
     
     return
 
@@ -895,11 +883,15 @@ def LoadInStar(fp:str = ''):
     """
     fp = os.path.join(fp, '')
     # Get file names for the various light curve lists:
-    lc_arr_fns = glob.glob(fp + 'raw_lc_section_*.npz')
-    lc_flag_fns = glob.glob(fp + 'flag_lc_section_*.npz')
-    lc_norm_fns = glob.glob(fp + 'norm_lc_section_*.npz')
+    lc_arr_fns = glob.glob(fp + 'raw_lc_section_*.tab')
+    lc_flag_fns = glob.glob(fp + 'flag_lc_section_*.tab')
+    lc_norm_fns = glob.glob(fp + 'norm_lc_section_*.tab')
     lc_median_fns = glob.glob(fp + 'lc_median_section_*.npz')
-    flare_fns = glob.glob(fp + 'flare*.npz')
+    flare_fns = glob.glob(fp + 'flare*.tab')
+    
+    if f"{fp}flare_table.tab" in flare_fns:
+        flare_fns.remove(f"{fp}flare_table.tab")
+        
     flare_fns.sort()
     lc_arr_fns.sort()
     lc_flag_fns.sort()
@@ -918,20 +910,20 @@ def LoadInStar(fp:str = ''):
     
     # load in information for the various light curve lists:
     for i in range(len(lc_arr_fns)):
-        lc_arr.append(NPZtoLightCurve(lc_arr_fns[i]))
-        lc_flag.append(NPZtoLightCurve(lc_flag_fns[i]))
-        lc_norm.append(NPZtoLightCurve(lc_norm_fns[i]))
+        lc_arr.append(TabtoLightCurve(lc_arr_fns[i]))
+        lc_flag.append(TabtoLightCurve(lc_flag_fns[i]))
+        lc_norm.append(TabtoLightCurve(lc_norm_fns[i]))
         lc_median.append(np.load(lc_median_fns[i],allow_pickle=True)['arr_0'])
         
     # load in information for flares:    
     for i in range(len(flare_fns)):
-        flares.append(NPZtoLightCurve(flare_fns[i]))
+        flares.append(TabtoLightCurve(flare_fns[i]))
      
     # make light curve collection of lc_arr:    
     lcs = lk.LightCurveCollection(lc_arr)
     
     # make Star object from loaded in data:
-    star = Star(misc['tic_num'], misc['radius'], misc['temperature'],period = misc['period'],lcs = lcs)
+    star = Star(misc['tic_num'], misc['radius'], misc['temperature'],period = misc['period'],lcs = lcs, clear_cache=False)
     
     # make Flares object from loaded in data:
     fl = Flares(star,process=False)
