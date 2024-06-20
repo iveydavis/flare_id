@@ -607,7 +607,7 @@ class Flares:
         y_top1,y_bottom1 = ax[0].get_ybound()
         y_top2,y_bottom2 = ax[1].get_ybound()
         if show_flares == True:
-            if self.flare_table == None:
+            if self.flare_table is None:
                 self.MakeFlareTable()
             for i in range(len(self.flare_table)):
                 f = self.flare_table[i]
@@ -755,10 +755,10 @@ class Flares:
         # Write out data for the various lists of light curves:
         for i in range(len(self.lc_arr)):
             # Make various light curve file names:
-            lc_arr_n = fp + 'raw_lc_section_'+"{:02d}".format(i)+'.npz'
-            lc_flag_n = fp + 'flag_lc_section_'+"{:02d}".format(i)+'.npz'
-            lc_norm_n = fp + 'norm_lc_section_'+"{:02d}".format(i)+'.npz'
-            lc_median_n = fp + 'lc_median_section_'+"{:02d}".format(i)+'.npz'
+            lc_arr_n = fp + 'raw_lc_section_'+"{:02d}".format(i)
+            lc_flag_n = fp + 'flag_lc_section_'+"{:02d}".format(i)
+            lc_norm_n = fp + 'norm_lc_section_'+"{:02d}".format(i)
+            lc_median_n = fp + 'lc_median_section_'+"{:02d}".format(i)
             
             # Convert from LightCurve object to np.array() and write to npz:
             LightCurvetoNPZ(self.lc_arr[i],lc_arr_n)
@@ -769,7 +769,7 @@ class Flares:
             np.savez(lc_median_n, self.lc_median[i],overwrite = True)
         
         # Write out the full light curve to an npz file:    
-        lc_n = fp + 'full_lc.npz'
+        lc_n = fp + 'full_lc'
         LightCurvetoNPZ(self.lc,lc_n)
         
         # Write out the flare_table to an ascii file:
@@ -778,7 +778,7 @@ class Flares:
         
         # Write out the data from the list of flares:
         for i in range(len(self.flares)):
-            fn = fp + 'flare_'+"{:02d}".format(i)+'.npz'
+            fn = fp + 'flare_'+"{:02d}".format(i)+''
             LightCurvetoNPZ(self.flares[i],fn)
         return
   
@@ -840,7 +840,7 @@ def NPZtoLightCurve(tab_n:str):
 
     return lc
 
-def LightCurvetoNPZ(tab:lk.LightCurve,out_name:str):
+def LightCurvetoNPZ(tab:lk.LightCurve,out_name:str, overwrite=True):
     """
     Converts LightCurve object to npz file
     :param tab: the light curve object
@@ -849,19 +849,39 @@ def LightCurvetoNPZ(tab:lk.LightCurve,out_name:str):
     :type out_name: str
 
     """
-    # makes array for all of the data of the light curve:
-    col_names = tab.colnames
-    arr = np.zeros((len(col_names),len(tab)))
+    # acceptable entry types for the meta dictionary to be written to JSON
+    acceptable_types = [float, int, bool, str, np.ndarray]
     
-    # gets mask information:
-    mask = tab.flux.mask
+    # get the metadata of the lightkurve object
+    meta_dict = tab.meta.copy()
+    bad_keys = []
+    array_keys = []
     
-    # assign light curve information to the appropriate array column
-    for i in range(len(col_names)-1):
-        arr[i,:] = tab[col_names[i]].value
+    for key in meta_dict.keys():
+        if type(meta_dict[key]) not in acceptable_types:
+            bad_keys.append(key)
+        if type(meta_dict[key]) == np.ndarray:
+            array_keys.append(key)
+    
+    # remove keys that can't be written to json:
+    for key in bad_keys:
+        meta_dict.__delitem__(key)
+        
+    # change arrays to lists    
+    for key in array_keys:
+        arr = list(meta_dict[key].astype(list))
+        meta_dict[key] = arr
+    
+    # write out table
+    table = tab.to_table()
+    table.write(out_name+".tab", format = 'ascii', overwrite=overwrite)
+    
+    meta_out_name = out_name+"_meta.json"
+    f = open(meta_out_name, 'w')
+    json.dump(meta_dict, f, indent=4)
         
     # write out data, mask information, column names, and meta data to file:
-    np.savez(out_name,data = arr, mask = mask, col_names = col_names,meta_dat = list(tab.meta.items()))
+    
     return
 
 def LoadInStar(fp:str = ''):
