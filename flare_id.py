@@ -897,6 +897,8 @@ def LoadInStar(fp:str = ''):
     lc_flag_fns.sort()
     lc_norm_fns.sort()
     lc_median_fns.sort()
+    if not (len(lc_arr_fns) == len(lc_flag_fns) == len(lc_norm_fns) == len(lc_median_fns)): 
+        warn("There are missing light curve sections. Cannot load in all data.")
     
     # Initialize lists for the various light curve lists:
     lc_arr = []
@@ -910,10 +912,22 @@ def LoadInStar(fp:str = ''):
     
     # load in information for the various light curve lists:
     for i in range(len(lc_arr_fns)):
-        lc_arr.append(TabtoLightCurve(lc_arr_fns[i]))
-        lc_flag.append(TabtoLightCurve(lc_flag_fns[i]))
-        lc_norm.append(TabtoLightCurve(lc_norm_fns[i]))
-        lc_median.append(np.load(lc_median_fns[i],allow_pickle=True)['arr_0'])
+        try:
+            lc_arr.append(TabtoLightCurve(lc_arr_fns[i]))
+        except:
+            pass
+        try:
+            lc_flag.append(TabtoLightCurve(lc_flag_fns[i]))
+        except:
+            pass
+        try:
+            lc_norm.append(TabtoLightCurve(lc_norm_fns[i]))
+        except:
+            pass
+        try:
+            lc_median.append(np.load(lc_median_fns[i],allow_pickle=True)['arr_0'])
+        except:
+            pass
         
     # load in information for flares:    
     for i in range(len(flare_fns)):
@@ -937,19 +951,22 @@ def LoadInStar(fp:str = ''):
     fl._n_pts = misc['n_pts']
     
     # read in flare_table:
-    flare_table = Table.read(fp+'flare_table.tab',format = 'ascii')
-    flags = []
+    try:
+        flare_table = Table.read(fp+'flare_table.tab',format = 'ascii')
+        flags = []
     
-    # convert flag information from flare_table from string to bool:
-    for f in flare_table:
-        if f['flag'] == 'True':
-            flags.append(True)
-        elif f['flag'] == 'False':
-            flags.append(False)
-    flare_table['flag'] = flags
+        # convert flag information from flare_table from string to bool:
+        for f in flare_table:
+            if f['flag'] == 'True':
+                flags.append(True)
+            elif f['flag'] == 'False':
+                flags.append(False)
+        flare_table['flag'] = flags
+        fl.flare_table = flare_table
+    except Exception as e:
+        warn(f"Could not read in flare table: {e}")
     
     # assign rest of Flares object properties:
-    fl.flare_table = flare_table
     fl.lc_arr = lc_arr
     fl.lc_flagged = lc_flag
     fl.lc_norm = lc_norm
