@@ -715,11 +715,14 @@ class Flares:
 
         """
         d = dict(self.lc.meta)
-        d.pop('PDC_VAR')
-        d.pop('PDC_VARP')
-        d.pop('PDC_EPT')
-        d.pop('PDC_EPTP')
-        d.pop('QUALITY_MASK')
+        try:
+            d.pop('PDC_VAR')
+            d.pop('PDC_VARP')
+            d.pop('PDC_EPT')
+            d.pop('PDC_EPTP')
+            d.pop('QUALITY_MASK')
+        except:
+            warn("Could not remove json-incompatible dictionary items.")
         return d
     
     def WriteOutData(self,base_dir:str = None):
