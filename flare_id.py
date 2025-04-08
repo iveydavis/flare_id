@@ -34,10 +34,10 @@ class Star:
     """
     Class for holding information about a star observed by TESS
     """
-    def __init__(self,tic_num:int, radius:'Solar radii', temperature:'Kelvin', lcs:lk.LightCurveCollection = None, period = None, sectors = range(14), exp_time:'sec' = 120, clear_cache=True, cache=cache_dir):
+    def __init__(self,id_number:int = None, star_name:str = None, radius:'Solar radii' = 1, temperature:'Kelvin' = 5700, lcs:lk.LightCurveCollection = None, period = None, sectors = range(14), exp_time:'sec' = 120, clear_cache=True, cache=cache_dir, instrument="TESS"):
         f"""
-        :param tic_num: TIC number of the object
-        :type tic_num: int
+        :param id_number: KIC/TIC number of the object
+        :type id_number: int
         :param radius: Radius of the star in solar radii
         :type radius: float
         :param temperature: Temperature of the star in Kelvin
@@ -55,23 +55,38 @@ class Star:
         :param cache: the cache directory. Default is {cache_dir}
         :type cache: str
         """
+        allowed_instruments = ["tess", "kepler"]
+        assert(instrument.lower() in allowed_instruments), f"Allowable instruments are {allowed_instruments}"
+        assert(not (id_number is None and star_name is None)), "Specify either name or KIC/TIC number of star"
+        assert(not (id_number is not None and star_name is not None)), "Specify either name or KIC/TIC number of star, not both"
+        
         assert(float(radius))
         assert(float(temperature))
         if period is not None:
             assert(float(period))
         
-        self.tic_num = tic_num
+        self.id_number = id_number
         self.radius = radius
         self.temperature = temperature
         self.cache_dir = cache
+        self.instrument = instrument
         
         # Get light curves from TESS sectors:
         if lcs is None:
-            lcs = lk.search_lightcurve(f'TIC {tic_num}', exptime=exp_time, author='SPOC', sector=sectors).download_all()
+            if instrument.lower() == 'tess':
+                if id_number is not None:
+                    lcs = lk.search_lightcurve(f'TIC {id_number}', exptime=exp_time, author='SPOC', sector=sectors).download_all()
+                elif star_name is not None:
+                    lcs = lk.search_lightcurve(star_name, exptime=exp_time, author='SPOC', sector=sectors).download_all() 
+            if instrument.lower() == 'kepler':
+                if id_number is not None:
+                    lcs = lk.search_lightcurve(f'KIC {id_number}', exptime=exp_time, quarter=sectors).download_all()
+                elif star_name is not None:
+                    lcs = lk.search_lightcurve(star_name, exptime=exp_time, author='SPOC', quarter=sectors).download_all() 
             lc = []
             for l in lcs:
-                if int(l.meta['LABEL'].strip('TIC ')) == tic_num:
-                    lc.append(l)
+                if int(l.meta['LABEL'].split(' ')[-1]) == id_number:
+                    lc.append(l.normalize())
             self.lcs = lk.LightCurveCollection(lc)
                     
         elif lcs is not None:
@@ -122,7 +137,7 @@ class Flares:
     """
     Class for flagging flares from a star observed by TESS and storing that data
     """
-    def __init__(self,star:Star, process:bool = True,int_time = 120*un.s):
+    def __init__(self,star:Star, process:bool = True, int_time=120*un.s):
         """
         :param star: Star object to do the processing on
         :type star: Star
@@ -178,7 +193,7 @@ class Flares:
         self._n_pts = 0
         return
     
-    def SplitLightCurve(self, min_gap = 30 * un.min):
+    def SplitLightCurve(self, min_gap = None):
         """
         Splits the light curve into a list of light curves based on gaps in the original curve
         :param min_gap: The minimum gap size for two light curves sections to be considered separate, defaults to 30 * un.min
@@ -187,11 +202,14 @@ class Flares:
         :rtype: list of LightCurve objects
 
         """
+    
         lcs = []
         
         #Find difference in time between consecutive points:
         s = pd.Series(self.lc.time.value)
         d = s.diff()
+        if min_gap is None:
+            min_gap = np.nanmedian(d) * 15 *un.day
         
         #Identify where gaps are greater than the minimum allowed gap
         inds = np.where(d > min_gap.to('d').value)[0]
@@ -690,7 +708,7 @@ class Flares:
     def __MakeMiscInfoDict__(self):
         """
         Makes dictionary of information about the star and flare analysis and statistics
-        :return: dictionary with the values for window, eclipse_window,flare_rate,median,std,tic_num,radius,temperature,and period
+        :return: dictionary with the values for window, eclipse_window,flare_rate,median,std,id_number,radius,temperature,and period
         :rtype: dictionary
 
         """
@@ -699,7 +717,7 @@ class Flares:
         d.update({'flare_rate':float(self.flare_rate.value)})
         d.update({'window':int(self.window)})
         d.update({'std':float(self.std)})
-        d.update({'tic_num':int(self.star.tic_num)})
+        d.update({'id_number':int(self.star.id_number)})
         d.update({'radius':float(self.star.radius)})
         d.update({'temperature':float(self.star.temperature)})
         d.update({'period':float(self.star.period)})
@@ -736,11 +754,18 @@ class Flares:
         #Make the directory that the data gets written to:
         try:
             if base_dir is None:
-                fp = 'TIC'+str(self.star.tic_num) + r'/'
+                if self.star.instrument.lower() == 'tess':
+                    fp = 'TIC'+str(self.star.id_number) + r'/'
+                elif self.star.instrument.lower() == 'kepler':
+                    fp = 'KIC'+str(self.star.id_number) + r'/'
+                    
             elif base_dir is not None:
                 if base_dir[-1] != '/':
                     base_dir += r'/'
-                fp =  base_dir + 'TIC'+str(self.star.tic_num)+ r'/'
+                if self.star.instrument.lower() == 'tess':
+                    fp =  base_dir + 'TIC'+str(self.star.id_number)+ r'/'
+                elif self.star.instrument.lower() == 'kepler':
+                    fp =  base_dir + 'KIC'+str(self.star.id_number)+ r'/'
             os.system('mkdir '+fp)
         except:
             raise Exception("Couldn't make directory "+fp)
@@ -940,7 +965,7 @@ def LoadInStar(fp:str = ''):
     lcs = lk.LightCurveCollection(lc_arr)
     
     # make Star object from loaded in data:
-    star = Star(misc['tic_num'], misc['radius'], misc['temperature'],period = misc['period'],lcs = lcs, clear_cache=False)
+    star = Star(misc['id_number'], misc['radius'], misc['temperature'],period = misc['period'],lcs = lcs, clear_cache=False)
     
     # make Flares object from loaded in data:
     fl = Flares(star,process=False)
