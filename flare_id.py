@@ -965,7 +965,7 @@ def LoadInStar(fp:str = ''):
     lcs = lk.LightCurveCollection(lc_arr)
     
     # make Star object from loaded in data:
-    star = Star(misc['id_number'], misc['radius'], misc['temperature'],period = misc['period'],lcs = lcs, clear_cache=False)
+    star = Star(id_number=misc['id_number'], radius=misc['radius'], temperature=misc['temperature'], period=misc['period'], lcs=lcs, clear_cache=False)
     
     # make Flares object from loaded in data:
     fl = Flares(star,process=False)
