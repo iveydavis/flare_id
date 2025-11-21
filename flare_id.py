@@ -78,18 +78,26 @@ class Star:
                     lcs = lk.search_lightcurve(f'TIC {id_number}', exptime=exp_time, author='SPOC', sector=sectors).download_all()
                 elif star_name is not None:
                     lcs = lk.search_lightcurve(star_name, exptime=exp_time, author='SPOC', sector=sectors).download_all() 
+                    
             if instrument.lower() == 'kepler':
                 if id_number is not None:
                     lcs = lk.search_lightcurve(f'KIC {id_number}', exptime=exp_time, quarter=sectors).download_all()
                 elif star_name is not None:
-                    lcs = lk.search_lightcurve(star_name, exptime=exp_time, author='SPOC', quarter=sectors).download_all() 
-            lc = []
-            for l in lcs:
-                if int(l.meta['LABEL'].split(' ')[-1]) == id_number:
-                    lc.append(l.normalize())
-            self.lcs = lk.LightCurveCollection(lc)
+                    lcs = lk.search_lightcurve(star_name, exptime=exp_time, author='K2SFF', quarter=sectors).download_all() 
+            
+            if self.id_number is not None:
+                lc = []
+                for l in lcs:
+                    if int(l.meta['LABEL'].split(' ')[-1]) == id_number:
+                        lc.append(l.normalize())
+                self.lcs = lk.LightCurveCollection(lc)
+                
+            elif self.id_number is None:
+                
+                self.lcs = lcs
+                self.id_number = int(lcs[0].meta['LABEL'].split(' ')[-1])
                     
-        elif lcs is not None:
+        if lcs is not None:
             self.lcs = lcs
             try:
                 self.lcs[0].flux.mask
@@ -99,28 +107,29 @@ class Star:
                     mask = np.isnan(l.flux)
                     l.flux = lk.LightCurve.MaskedColumn(data = l.flux,name = 'flux', mask = mask)
             
-        # Calculate the average period between the different sector light curves using BLS method:
-        if period is None:
-            periods = []
-            mps = []
-            for lc in self.lcs:
-                p = lc.to_periodogram('bls')
-                periods.append(p.period_at_max_power.to('day').value)
-                mps.append(p.max_power.value)
-            mp = np.nanmean(mps)
-            if mp >= 1e3:
-                period = np.average(periods)
-            elif mp < 1e3:
-                period = np.nanmean([len(lc) for lc in lcs]) * exp_time * un.s.to('d')
-            self.period = period
-            
-        elif period is not None:
-            assert(float(period))
-            self.period = period
-            
-        if clear_cache:
-            self.clear_cache()
-        return
+            exp_time = np.nanmedian(lcs[0].time - np.roll(lcs[0].time,1)).to('s')
+            # Calculate the average period between the different sector light curves using BLS method:
+            if period is None:
+                periods = []
+                mps = []
+                for lc in self.lcs:
+                    p = lc.to_periodogram('bls')
+                    periods.append(p.period_at_max_power.to('day').value)
+                    mps.append(p.max_power.value)
+                mp = np.nanmean(mps)
+                if mp >= 1e3:
+                    period = np.average(periods)
+                elif mp < 1e3:
+                    period = (np.nanmean([len(lc) for lc in lcs]) * exp_time.to('d')).value
+                self.period = period
+                
+            elif period is not None:
+                assert(float(period))
+                self.period = period
+                
+            if clear_cache:
+                self.clear_cache()
+            return
     
     def clear_cache(self):
         for lc in self.lcs:
@@ -137,7 +146,7 @@ class Flares:
     """
     Class for flagging flares from a star observed by TESS and storing that data
     """
-    def __init__(self,star:Star, process:bool = True, int_time=120*un.s):
+    def __init__(self,star:Star, process:bool = True):
         """
         :param star: Star object to do the processing on
         :type star: Star
@@ -147,9 +156,8 @@ class Flares:
         :type int_time: astropy.units.quantity.Quantity
         """
         
-        assert(int_time.unit.to('min')),"The integration time needs to be in units of time"
         self.star = star
-        self.int_time = int_time
+        self.int_time = np.nanmedian(star.lcs[0].time - np.roll(star.lcs[0].time, 1)).to('min')
         
         if process:
             #Identify where there are flagged points and remove them from the light curve:
@@ -164,7 +172,7 @@ class Flares:
                 window_time = 100
             
             #Convert window time to 
-            window = int((window_time/int_time.to('min').value))
+            window = int((window_time/self.int_time.to('min').value))
             
             #Make the window size odd:
             if window%2 == 0:
